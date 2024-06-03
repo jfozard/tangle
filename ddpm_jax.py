@@ -14,12 +14,12 @@ import jax.numpy as jnp
 from flax import linen as nn
 from flax.training import train_state
 import optax
-from torchvision import datasets, transforms
-from torch.utils.data import DataLoader, Dataset
+#from torchvision import datasets, transforms
+#from torch.utils.data import DataLoader, Dataset
 import numpy as np
 from tqdm import tqdm
 from make_tangle import make_tangle
-from ema_pytorch import EMA
+#from ema_pytorch import EMA
 import matplotlib.pyplot as plt
 import pickle
 import tqdm
@@ -101,7 +101,7 @@ import ray
 
 class TangleDataset(tf.data.Dataset):
     """A custom TensorFlow Dataset class for the Tangle dataset."""
-    def _generator(m, fn=""):
+    def _generator(m, fn="", offset=0):
         # Generator function that yields data samples
         if fn:
             with open(fn, 'rb') as f:
@@ -110,19 +110,19 @@ class TangleDataset(tf.data.Dataset):
                 print('loaded', len(data))
         else:
             print('ray', m)
-            data = ray.get([make_tangle_remote.remote(i+123456789) for i in range(m)])
+            data = ray.get([make_tangle_remote.remote(i+offset) for i in range(m)])
             print('get data', len(data))
 
         for item in data:
             if item is not None:
                 yield item
 
-    def __new__(cls, m=10, fn=""):
+    def __new__(cls, m=10, fn="", offset=0):
         return tf.data.Dataset.from_generator(
             cls._generator,
             output_types=(tf.float32, tf.float32),  # Modify these types based on your actual data types
             output_shapes=(tf.TensorShape([32,32,5]), tf.TensorShape([32,32,2])),  # Adjust these shapes based on your data
-            args=(m,fn)
+            args=(m,fn, offset)
         )
 
 
@@ -155,16 +155,19 @@ def prepare_for_training(ds, batch_size=32, shuffle_buffer_size=1000):
 
 
 # Example usage
-m = 10
+m =  16
 fn = None  # Specify filename if you have pre-saved data
 
 tangle_dataset_a = TangleDataset(m)#, fn='train_100000.pkl')
 
 tangle_dataset = prepare_for_training(tangle_dataset_a)
 
-test_dataset = TangleDataset(m)
+m = 160
+
+test_dataset = TangleDataset(m, offset=1234567890)
 
 test_dataset = prepare_for_training(test_dataset, batch_size=8)
+
 
 import math
 
@@ -530,7 +533,7 @@ for epoch in range(epochs):
         train_step_rng = jnp.asarray(train_step_rng)
         state, loss, gm = p_train_step(train_step_rng, state, batch)
         if i%100==0:
-            pbar.set_postfix({'loss': loss})
+            pbar.set_postfix({'loss': loss[0]})
 #        wandb.log({"epoch": epoch, "loss": loss.item()})
     
 

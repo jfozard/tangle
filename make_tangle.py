@@ -25,6 +25,10 @@ DIRECTIONS = [
 #print(DIRECTIONS)
 
 def generate_random_path(grid, idx):
+    GRID_X, GRID_Y, GRID_Z = grid.shape
+    R = GRID_X//2
+    MIN_LENGTH=(GRID_X*3)//4
+    MAX_LENGTH=(GRID_X*3)//2
     # Random start point
     while True:
         start_x = random.randint(0, GRID_X - 1)
@@ -89,9 +93,11 @@ def generate_random_path(grid, idx):
     
     return path
 
-def make_tangle(i):
+def make_tangle(i, S, NUM_PATHS):
     npr.seed(i)
     random.seed(i)
+
+    GRID_X = GRID_Y = GRID_Z = S
 # Generate paths
     grid = np.zeros((GRID_X,GRID_Y,GRID_Z), dtype=np.int8)
     paths = [generate_random_path(grid, i+1) for i in range(NUM_PATHS)]
@@ -99,7 +105,7 @@ def make_tangle(i):
     grid_2d = np.zeros((GRID_X, GRID_Y), dtype=np.int8)
     depth_2d = np.zeros((GRID_X, GRID_Y), dtype=np.int8)
     depth_2d[:,:] = GRID_Z
-    output = np.zeros((GRID_X, GRID_Y, 5), dtype=np.int8)
+    output = np.zeros((GRID_X, GRID_Y, NUM_PATHS), dtype=np.int8)
     for i, p in enumerate(paths):
         for x, y, z in p:
             if z<depth_2d[x,y]:
@@ -111,7 +117,7 @@ def make_tangle(i):
     return output.astype(np.float32), np.stack([grid_2d, depth_2d/GRID_Z], axis=2).astype(np.float32)
 
 if __name__=="__main__":
-    x, y = make_tangle(npr.randint(100))
+    x, y = make_tangle(npr.randint(100), 64, 16)
     import matplotlib.pyplot as plt
     plt.imshow(y[0])
     plt.figure()

@@ -65,8 +65,8 @@ def view_paths_matched(x, y0, x0):
     plt.imshow(img.astype(np.float32))
 
 @ray.remote
-def make_tangle_remote(i):
-   return make_tangle(i)
+def make_tangle_remote(i, s, np):
+   return make_tangle(i, s, np)
    
 def batch_dice_loss(inputs, targets):
     """
@@ -99,6 +99,9 @@ import tensorflow as tf
 import pickle
 import ray
 
+NP = 8
+S = 64
+
 class TangleDataset(tf.data.Dataset):
     """A custom TensorFlow Dataset class for the Tangle dataset."""
     def _generator(m, fn="", offset=0):
@@ -110,7 +113,7 @@ class TangleDataset(tf.data.Dataset):
                 print('loaded', len(data))
         else:
             print('ray', m)
-            data = ray.get([make_tangle_remote.remote(i+offset) for i in range(m)])
+            data = ray.get([make_tangle_remote.remote(i+offset, S, NP) for i in range(m)])
             print('get data', len(data))
 
         for item in data:
@@ -121,7 +124,7 @@ class TangleDataset(tf.data.Dataset):
         return tf.data.Dataset.from_generator(
             cls._generator,
             output_types=(tf.float32, tf.float32),  # Modify these types based on your actual data types
-            output_shapes=(tf.TensorShape([32,32,5]), tf.TensorShape([32,32,2])),  # Adjust these shapes based on your data
+            output_shapes=(tf.TensorShape([S,S,NP]), tf.TensorShape([S,S,2])),  # Adjust these shapes based on your data
             args=(m,fn, offset)
         )
 
@@ -155,18 +158,18 @@ def prepare_for_training(ds, batch_size=32, shuffle_buffer_size=1000):
 
 
 # Example usage
-m =  16
+m =  1024*16
 fn = None  # Specify filename if you have pre-saved data
 
 tangle_dataset_a = TangleDataset(m)#, fn='train_100000.pkl')
 
-tangle_dataset = prepare_for_training(tangle_dataset_a)
+tangle_dataset = prepare_for_training(tangle_dataset_a, batch_size=64)
 
 m = 160
 
 test_dataset = TangleDataset(m, offset=1234567890)
 
-test_dataset = prepare_for_training(test_dataset, batch_size=8)
+test_dataset = prepare_for_training(test_dataset, batch_size=16)
 
 
 import math
@@ -244,7 +247,7 @@ class BasicBlock(nn.Module):
         
 class DenoisingModel(nn.Module):
     NC: int = 128
-    S: int = 32  # Update with actual size
+    S: int = S  # Update with actual size
 
     @nn.compact
     def __call__(self, x, y, t):
@@ -272,7 +275,7 @@ class DenoisingModel(nn.Module):
         x = BasicBlock(self.NC, self.NC)(x, pos_emb, time_emb)
         x = BasicBlock(self.NC, self.NC)(x, pos_emb, time_emb)
         x = BasicBlock(self.NC, self.NC)(x, pos_emb, time_emb)
-        return nn.Conv(10, kernel_size=(1, 1), name="model_out",   bias_init=jax.nn.initializers.zeros)(x)
+        return nn.Conv(NP*2, kernel_size=(1, 1), name="model_out",   bias_init=jax.nn.initializers.zeros)(x)
 
 
 import jax
@@ -364,7 +367,7 @@ def mse_loss(predictions, targets):
 # Initialize the model and optimizer
 def create_train_state(rng, learning_rate):
     model = DenoisingModel()
-    params = model.init(rng, jnp.ones([1, 32, 32, 10]), jnp.ones([1, 32, 32, 2]), jnp.ones([1]))['params']
+    params = model.init(rng, jnp.ones([1, S, S, 2*NP]), jnp.ones([1, S, S, 2]), jnp.ones([1]))['params']
     tx = optax.adam(learning_rate = 1e-4 , b1=0.9, b2 = 0.9999, 
             eps=1e-8)
     return train_state.TrainState.create(apply_fn=model.apply, params=params, tx=tx)

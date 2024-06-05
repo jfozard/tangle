@@ -13,7 +13,7 @@ NUM_PATHS = 5
 MIN_LENGTH = 20
 MAX_LENGTH = 40
 R = 15
-DROPOUT = 0.05
+DROPOUT = 0.1
 
 # Directions for 3D grid movement (6 possible movements)
 DIRECTIONS = [

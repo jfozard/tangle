@@ -21,7 +21,7 @@ import numpy as np
 from tqdm import tqdm
 from make_tangle import make_tangle
 #from ema_pytorch import EMA
-import matplotlib.pyplot as plt
+#import matplotlib.pyplot as plt
 import pickle
 import tqdm
 import utils
@@ -32,7 +32,7 @@ from flax.training import common_utils
 from scipy.optimize import linear_sum_assignment
 from imageio import imwrite
 
-import matplotlib.pyplot as plt
+#import matplotlib.pyplot as plt
 
 import ray
 ray.init()#num_cpus=6)
@@ -68,7 +68,7 @@ def view_paths_matched(x, y0, x0):
         img = np.hstack((np.dstack((depth*(mask>0), depth*(mask>0), mask)), np.dstack((jnp.max(x[i], axis=-1), jnp.max(x0[i], axis=-1), 0*jnp.max(x[i], axis=-1))), img))
         imgs.append(img)
     img = np.vstack(imgs)
-    plt.imshow(img.astype(np.float32))
+#    plt.imshow(img.astype(np.float32))
     return img
 
 @ray.remote
@@ -165,10 +165,10 @@ def prepare_for_training(ds, batch_size=32, shuffle_buffer_size=1000):
 
 
 # Example usage
-m =  1024#*16
+m =  1024*1024
 fn = None  # Specify filename if you have pre-saved data
-bs = 4
-t_bs = 2
+bs = 128
+t_bs = 32
 
 tangle_dataset_a = TangleDataset(m)#, fn='train_100000.pkl')
 
@@ -541,8 +541,8 @@ p_train_step = jax.pmap(train_step_p, axis_name = 'batch')
 sample_step = functools.partial(ddpm_sample_step, ddpm_params=ddpm_params)
 p_sample_step = jax.pmap(sample_step, axis_name='batch')
 
-plt.figure()
-plt.ion()
+#plt.figure()
+#plt.ion()
 
 
 train_metrics = []
@@ -589,7 +589,7 @@ for epoch in range(epochs):
             img = view_paths_matched(x[0].astype(jnp.float32), batch[1][0], batch[0][0].astype(jnp.float32))
             img = (255*img/np.max(img)).astype(np.uint8)
 #            plt.savefig(f'results_{i}.png')
-            plt.pause(0.1)
+#            plt.pause(0.1)
             imwrite(f'results_{i}.png', img)
             wandb.log({
                 "train/step": i, ** summary

@@ -13,6 +13,7 @@ NUM_PATHS = 5
 MIN_LENGTH = 20
 MAX_LENGTH = 40
 R = 15
+DROPOUT = 0.05
 
 # Directions for 3D grid movement (6 possible movements)
 DIRECTIONS = [
@@ -100,18 +101,21 @@ def make_tangle(i, S, NUM_PATHS):
     GRID_X = GRID_Y = GRID_Z = S
 # Generate paths
     grid = np.zeros((GRID_X,GRID_Y,GRID_Z), dtype=np.int8)
-    paths = [generate_random_path(grid, i+1) for i in range(NUM_PATHS)]
+
+    NP = random.randint(NUM_PATHS//2, NUM_PATHS)
+    paths = [generate_random_path(grid, i+1) for i in range(NP)] 
 
     grid_2d = np.zeros((GRID_X, GRID_Y), dtype=np.int8)
     depth_2d = np.zeros((GRID_X, GRID_Y), dtype=np.int8)
     depth_2d[:,:] = GRID_Z
     output = np.zeros((GRID_X, GRID_Y, NUM_PATHS), dtype=np.int8)
+    ilist = random.sample(range(NUM_PATHS), NP)
     for i, p in enumerate(paths):
         for x, y, z in p:
-            if z<depth_2d[x,y]:
+            if z<depth_2d[x,y] and random.random()>=DROPOUT:
                 depth_2d[x,y] = z
-                grid_2d[x,y] = i+1
-            output[x,y,i] = 1
+                grid_2d[x,y] = ilist[i]+1
+            output[x,y,ilist[i]] = 1
 
     #return output.transpose((2,0,1)).astype(np.float32), np.stack([grid_2d, depth_2d/GRID_Z], axis=0).astype(np.float32)
     return output.astype(np.float32), np.stack([grid_2d, depth_2d/GRID_Z], axis=2).astype(np.float32)
@@ -119,9 +123,10 @@ def make_tangle(i, S, NUM_PATHS):
 if __name__=="__main__":
     x, y = make_tangle(npr.randint(100), 64, 16)
     import matplotlib.pyplot as plt
-    plt.imshow(y[0])
+    print(x.shape, y.shape)
+    plt.imshow(np.sum(x[:,:,:], axis=-1))
     plt.figure()
-    plt.imshow((y[0]>0)*y[1])
+    plt.imshow((y[:,:,0]>0)*y[:,:,1])
     plt.show()
 
         

@@ -3,7 +3,8 @@ import jax.numpy as jnp
 from flax import linen as nn
 from flax.training import train_state
 import optax
-#import wandb
+import wandb
+import time
 import tensorflow as tf
 
 import pickle
@@ -26,8 +27,10 @@ import tqdm
 import utils
 import functools
 from flax import jax_utils
+from flax.training import common_utils
 
 from scipy.optimize import linear_sum_assignment
+from imageio import imwrite
 
 import matplotlib.pyplot as plt
 
@@ -53,16 +56,20 @@ def view_paths_matched(x, y0, x0):
     lsa = match_paths(x0, x)
     imgs = []
     y0 = y0
-    print('y0', y0.shape)
     for i in range(x.shape[0]):
         path = x[i,:,:,lsa[i][1]]
         tgt = x0[i,:,:,lsa[i][0]]
+        depth = y0[i,:,:,1]
+        mask = y0[i,:,:,0]
+        mask = mask / np.max(mask)
+        depth = depth / np.max(depth)
         img = np.stack([path, tgt, 0*tgt], axis=-1)
         img = np.hstack(img)
-        img = np.hstack((np.dstack((y0[i,:,:,1]*y0[i,:,:,0], y0[i,:,:,1]*y0[i,:,:,0], y0[i,:,:,0])), np.dstack((jnp.max(x[i], axis=-1), jnp.max(x[i], axis=-1), 0*jnp.max(x[i], axis=-1))), img))
+        img = np.hstack((np.dstack((depth*(mask>0), depth*(mask>0), mask)), np.dstack((jnp.max(x[i], axis=-1), jnp.max(x0[i], axis=-1), 0*jnp.max(x[i], axis=-1))), img))
         imgs.append(img)
     img = np.vstack(imgs)
     plt.imshow(img.astype(np.float32))
+    return img
 
 @ray.remote
 def make_tangle_remote(i, s, np):
@@ -99,7 +106,7 @@ import tensorflow as tf
 import pickle
 import ray
 
-NP = 8
+NP = 16
 S = 64
 
 class TangleDataset(tf.data.Dataset):
@@ -158,18 +165,20 @@ def prepare_for_training(ds, batch_size=32, shuffle_buffer_size=1000):
 
 
 # Example usage
-m =  1024*16
+m =  1024#*16
 fn = None  # Specify filename if you have pre-saved data
+bs = 4
+t_bs = 2
 
 tangle_dataset_a = TangleDataset(m)#, fn='train_100000.pkl')
 
-tangle_dataset = prepare_for_training(tangle_dataset_a, batch_size=64)
+tangle_dataset = prepare_for_training(tangle_dataset_a, batch_size=bs)
 
 m = 160
 
 test_dataset = TangleDataset(m, offset=1234567890)
 
-test_dataset = prepare_for_training(test_dataset, batch_size=16)
+test_dataset = prepare_for_training(test_dataset, batch_size=t_bs)
 
 
 import math
@@ -517,6 +526,12 @@ def save_state(state, filepath):
         f.write(serialized_state)
 
 
+if jax.process_index() == 0:
+    wandb.init(
+        project='ddpm_jax',
+        job_type='training')
+
+
 from jax.tree_util import Partial
 state = jax_utils.replicate(state)
 
@@ -529,16 +544,40 @@ p_sample_step = jax.pmap(sample_step, axis_name='batch')
 plt.figure()
 plt.ion()
 
+
+train_metrics = []
+train_metrics_last_t = time.time()
+
 for epoch in range(epochs):
     for i, batch in enumerate(pbar:=tqdm.tqdm(tangle_dataset)):  # Make sure your dataset yields batches as tuples
         
         rng, *train_step_rng = jax.random.split(rng, num=jax.local_device_count() + 1)
         train_step_rng = jnp.asarray(train_step_rng)
         state, loss, gm = p_train_step(train_step_rng, state, batch)
+
+        train_metrics.append(loss)
+
+
         if i%100==0:
+            train_metrics = common_utils.get_metrics(train_metrics)
+
+            summary = {
+                'train/loss': jax.tree_map(lambda x: x.mean(), train_metrics)
+            }
+            summary['time/seconds_per_step'] =  (time.time() - train_metrics_last_t) /100
+
+            train_metrics = []
+            train_metrics_last_t = time.time()
+
+
             pbar.set_postfix({'loss': loss[0]})
-#        wandb.log({"epoch": epoch, "loss": loss.item()})
-    
+            wandb.log({
+                "train/step": i, ** summary
+            })
+
+
+            #        wandb.log({"epoch": epoch, "loss": loss.item()})
+
 
         if i%1000==0:
             batch = next(test_dataset)
@@ -547,9 +586,17 @@ for epoch in range(epochs):
             sample_step_rng = jnp.asarray(sample_step_rng)
 
             x= p_sample_step(sample_step_rng, state, batch)
-            view_paths_matched(x[0].astype(jnp.float32), batch[1][0], batch[0][0].astype(jnp.float32))
-            plt.savefig(f'results_{i}.png')
+            img = view_paths_matched(x[0].astype(jnp.float32), batch[1][0], batch[0][0].astype(jnp.float32))
+            img = (255*img/np.max(img)).astype(np.uint8)
+#            plt.savefig(f'results_{i}.png')
             plt.pause(0.1)
+            imwrite(f'results_{i}.png', img)
+            wandb.log({
+                "train/step": i, ** summary
+            })
+            sample_images = wandb.Image(img, caption = f'samples step {i}')
+            wandb.log({'samples': sample_images})
+            
         if i%10000==0:
             save_state(state, f'model_{i}.msgpack')
         if i==300000:
